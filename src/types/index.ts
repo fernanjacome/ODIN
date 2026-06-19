@@ -135,6 +135,7 @@ export interface OperationalLoadSeriesPointDto {
   failed: number
   withdrawals: number
   inquiries: number
+  expectedTransactions?: number
 }
 
 export interface OperationalLoadSeriesDto {
@@ -143,6 +144,8 @@ export interface OperationalLoadSeriesDto {
   totalTransactions: number
   successfulTransactions: number
   failedTransactions: number
+  expectedTransactions?: number
+  expectedAvailable: boolean
   firstTransactionAt?: string
   lastTransactionAt?: string
   points: OperationalLoadSeriesPointDto[]

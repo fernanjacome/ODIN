@@ -454,9 +454,12 @@ export function OperationalLoadSeriesChart({ series, sessionLabel, rangeText }: 
 
   const buckets = series?.points ?? []
   const counts = buckets.map(item => item.transactions)
+  const expectedCounts = buckets.map(item => item.expectedTransactions ?? 0)
   const total = series?.totalTransactions ?? 0
   const successful = series?.successfulTransactions ?? 0
   const failed = series?.failedTransactions ?? 0
+  const expectedAvailable = Boolean(series?.expectedAvailable && buckets.some(item => item.expectedTransactions !== undefined))
+  const expectedTotal = series?.expectedTransactions ?? expectedCounts.reduce((sum, item) => sum + item, 0)
   const peak = buckets.length > 0 ? buckets.reduce((current, next) => next.transactions > current.transactions ? next : current) : null
   const activeKey = hoveredKey ?? pinnedKey
   const selectedBar = activeKey === null ? null : buckets.find(item => item.key === activeKey) ?? null
@@ -471,7 +474,7 @@ export function OperationalLoadSeriesChart({ series, sessionLabel, rangeText }: 
   const bottom = series?.granularity === 'hour' ? 46 : 38
   const plotWidth = width - left - right
   const plotHeight = height - top - bottom
-  const step = niceAxisStep(Math.max(1, ...counts) / 4)
+  const step = niceAxisStep(Math.max(1, ...counts, ...expectedCounts) / 4)
   const axisMax = step * 4
   const slot = plotWidth / Math.max(1, buckets.length)
   const barWidth = Math.max(10, Math.min(64, slot * 0.54))
@@ -487,6 +490,13 @@ export function OperationalLoadSeriesChart({ series, sessionLabel, rangeText }: 
     const y = pointY(bucket.successful)
     return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`
   }).join(' ')
+  const expectedPath = expectedAvailable
+    ? buckets.map((bucket, index) => {
+      const x = left + slot * index + slot / 2
+      const y = pointY(bucket.expectedTransactions ?? 0)
+      return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`
+    }).join(' ')
+    : ''
   const failedPath = buckets
     .filter(bucket => bucket.failed > 0)
     .map(bucket => {
@@ -504,12 +514,13 @@ export function OperationalLoadSeriesChart({ series, sessionLabel, rangeText }: 
         kpis={[
           { label: 'Total', value: total.toLocaleString('es-EC'), color: '#1d4ed8' },
           { label: 'Pico', value: peak ? `${peak.transactions} tx` : '-', sub: peak?.label, color: '#dc2626' },
+          { label: 'Esperado', value: expectedAvailable ? expectedTotal.toLocaleString('es-EC', { maximumFractionDigits: 0 }) : '-', sub: expectedAvailable ? 'segun curva' : 'no comparable', color: expectedAvailable ? '#92400e' : '#94a3b8' },
           { label: 'Éxito', value: total > 0 ? `${(successful / total * 100).toFixed(1)}%` : '0.0%', color: total === 0 || successful / Math.max(1, total) >= 0.9 ? '#15803d' : '#b45309' },
           { label: periodLabel, value: buckets.length.toString(), sub: `${failed} fallidas`, color: '#475569' },
         ]}
       />
 
-      {total === 0 ? (
+      {total === 0 && !expectedAvailable ? (
         <EmptyChart text="Sin transacciones agregadas para esta consulta." />
       ) : (
         <div ref={containerRef} style={{ padding: '10px 12px 4px', position: 'relative' }}>
@@ -558,10 +569,11 @@ export function OperationalLoadSeriesChart({ series, sessionLabel, rangeText }: 
                 </g>
               )
             })}
+            {expectedPath && <path d={expectedPath} fill="none" stroke="#d97706" strokeWidth="2.2" strokeDasharray="6 5" strokeLinecap="round" strokeLinejoin="round" />}
             {linePath && <path d={linePath} fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
             {failedPath && <polyline points={failedPath} fill="none" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
           </svg>
-          <ChartLegend />
+          <ChartLegend expectedAvailable={expectedAvailable} />
           {selectedBar && cardPosition && <FloatingTooltip x={cardPosition.x} y={cardPosition.y} title={selectedBarTitle} item={selectedBar} pinned={pinnedKey === selectedBar.key} />}
         </div>
       )}
@@ -596,7 +608,7 @@ function StatusPill({ label, value, color = '#334155', wide = false }: { label: 
 
 function ChartHeader({ title, subtitle, kpis }: { title: string; subtitle: string; kpis: Array<{ label: string; value: string; sub?: string; color: string }> }) {
   return (
-    <div style={{ minHeight: 48, borderBottom: '1px solid #e5e7eb', background: '#f8fafc', display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) repeat(4, minmax(92px, auto))', gap: 10, alignItems: 'center', padding: '7px 10px' }}>
+    <div style={{ minHeight: 48, borderBottom: '1px solid #e5e7eb', background: '#f8fafc', display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) repeat(5, minmax(86px, auto))', gap: 10, alignItems: 'center', padding: '7px 10px' }}>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 12, color: '#1f2937', fontWeight: 600, textTransform: 'uppercase' }}>{title}</div>
         <div style={{ color: '#64748b', fontSize: 10, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subtitle}</div>
@@ -641,6 +653,7 @@ function FloatingTooltip({ x, y, title, item, pinned }: { x: number; y: number; 
         <span style={{ color: '#111827', fontWeight: 600 }}>{title}</span>
       </div>
       <TooltipMetric label="Transacciones" value={item.transactions} color="#2563eb" />
+      {item.expectedTransactions !== undefined && <TooltipMetric label="Esperadas" value={Math.round(item.expectedTransactions)} color="#92400e" />}
       <TooltipMetric label="Exitosas" value={item.successful} color="#15803d" />
       <TooltipMetric label="Fallidas" value={item.failed} color={item.failed > 0 ? '#ea580c' : '#94a3b8'} />
       <TooltipMetric label="Retiros" value={item.withdrawals} color="#334155" />
@@ -649,10 +662,11 @@ function FloatingTooltip({ x, y, title, item, pinned }: { x: number; y: number; 
   )
 }
 
-function ChartLegend() {
+function ChartLegend({ expectedAvailable }: { expectedAvailable: boolean }) {
   return (
     <div style={{ height: 18, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, color: '#64748b', fontSize: 10 }}>
       <Legend color="#2563eb" label="Transacciones" />
+      {expectedAvailable && <Legend color="#d97706" label="Esperado" />}
       <Legend color="#10b981" label="Exitosas" />
       <Legend color="#f97316" label="Fallidas" />
     </div>
